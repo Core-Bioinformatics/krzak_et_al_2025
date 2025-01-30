@@ -8,6 +8,6 @@ Myeloid cells play a pivotal role in persistent central nervous system (CNS) inf
 
 
 
-- `Analysis script` - R scripts for generating all steps of the analysis
+- `Scripts` - R scripts for generating all steps of the analysis
 
 - `CyTOF data` - folder containing all CyTOF data used in this study
