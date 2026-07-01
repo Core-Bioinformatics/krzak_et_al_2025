@@ -1,0 +1,284 @@
+# NatImm / NatureImm bulk RNA-seq command record
+# Project root on ISS:
+#   /iss-corescratch/se524/NatImm
+#
+# Final 39-sample app URL:
+#   https://mohorianulab.org/shiny/NatureImm_uD7x9LmQ2r/NatImm_bulkAnalyseR/
+#
+# Manuscript-specific 5-sample subset:
+#   Het: S56, S54, S58
+#   WT : S60, S50
+#
+# Tool versions recorded during the project:
+#   FastQC v0.11.9
+#   MultiQC v1.14
+#   seqtk 1.3-r106
+#   STAR v2.7.8a
+#   samtools v1.11
+#   featureCounts v2.0.1
+#   R v4.4.1 on ISS
+#   R v4.5.1 on Windows/RStudio for the local manuscript-specific app and supplementary scripts
+#
+# This file records the computational commands in the order used for the project.
+# The corresponding executable scripts are stored in the Scripts/ folder of the GitHub repository.
+
+set -euo pipefail
+
+cd /iss-corescratch/se524/NatImm
+
+fastqc --version
+multiqc --version
+seqtk 2>&1 | head
+STAR --version
+samtools --version | head
+featureCounts -v
+R --version | head
+
+mkdir -p inventory logs
+
+find raw_extracted -type f \( -name "*.fq.gz" -o -name "*.fastq.gz" \) | sort \
+  > inventory/raw_fastq_files.txt
+
+find raw_extracted -type f \( -name "MD5.txt" -o -name "*.md5" \) | sort \
+  > inventory/raw_md5_files.txt
+
+# Raw FASTQ QC.
+# FastQC was run on the 44 metadata samples, producing 88 reports.
+# MultiQC then summarised the raw FastQC reports.
+
+mkdir -p qc/fastqc_raw qc/multiqc_raw logs
+
+fastqc \
+  raw_extracted/*/01.RawData/S*/*.fq.gz \
+  --outdir qc/fastqc_raw \
+  --threads 8 \
+  > logs/fastqc_raw.log 2>&1
+
+multiqc qc/fastqc_raw \
+  -o qc/multiqc_raw \
+  > logs/multiqc_raw.log 2>&1
+
+# Samples excluded after raw QC:
+#   S14, S36, S39, S46, S51
+#
+# Exclusion criteria:
+#   samples with fewer than 4 million read pairs were excluded;
+#   S39 and S51 were also excluded as non-rescuable based on low sequence complexity / adapter-related QC issues.
+#
+# The final keep/exclude decisions are stored in:
+#   cleanup/samples_keep_after_cleanup.txt
+#   cleanup/samples_exclude_after_cleanup.txt
+#   cleanup/sample_cleanup_decision_table.tsv
+
+mkdir -p cleanup
+
+cat > cleanup/samples_exclude_after_cleanup.txt <<'EOF'
+S14
+S36
+S39
+S46
+S51
+EOF
+
+# Main 4M read-pair subsampling for the retained 39 samples.
+# The script uses seqtk sample without replacement.
+# R1 and R2 are subsampled with the same seed to preserve pairing.
+# The core commands inside the script are:
+#   seqtk sample -s"$seed" "$r1" "$N" | pigz -p 4 > "$out1"
+#   seqtk sample -s"$seed" "$r2" "$N" | pigz -p 4 > "$out2"
+# where N=4000000 read pairs.
+
+nohup ./scripts_subsample_main_4M.sh \
+  > logs/subsample_main_4M.log 2>&1 &
+
+wait
+
+# Five independent 4M subsampling iterations for S7, S19 and S43.
+# These were used to check whether one random 4M subsample was stable enough for downstream analysis.
+
+nohup ./subsample_large_samples_iterations_1_to_5.sh \
+  > logs/subsample_large_samples_iterations_1_to_5.log 2>&1 &
+
+wait
+
+# Read-count and pairing checks after subsampling (see Scripts/).
+
+bash ./check_main_read_counts.sh \
+  > logs/check_main_read_counts.log 2>&1
+
+python3 ./check_main_pairing_without_replacement.py \
+  > logs/check_main_pairing_without_replacement.log 2>&1
+
+bash ./check_large_iterations_read_counts.sh \
+  > logs/check_large_iterations_read_counts.log 2>&1
+
+python3 ./check_large_iterations_pairing_without_replacement.py \
+  > logs/check_large_iterations_pairing_without_replacement.log 2>&1
+
+# FastQC and MultiQC after 4M subsampling.
+
+mkdir -p qc/fastqc_subsampled_4M_main qc/multiqc_subsampled_4M_main
+mkdir -p qc/fastqc_large_sample_iterations qc/multiqc_large_sample_iterations
+
+fastqc \
+  subsampled_4M/main/*.fq.gz \
+  --outdir qc/fastqc_subsampled_4M_main \
+  --threads 8 \
+  > logs/fastqc_subsampled_4M_main.log 2>&1
+
+multiqc qc/fastqc_subsampled_4M_main \
+  -o qc/multiqc_subsampled_4M_main \
+  > logs/multiqc_subsampled_4M_main.log 2>&1
+
+fastqc \
+  subsampled_4M/large_sample_iterations/*.fq.gz \
+  --outdir qc/fastqc_large_sample_iterations \
+  --threads 8 \
+  > logs/fastqc_large_sample_iterations.log 2>&1
+
+multiqc qc/fastqc_large_sample_iterations \
+  -o qc/multiqc_large_sample_iterations \
+  > logs/multiqc_large_sample_iterations.log 2>&1
+
+# STAR genome index generation.
+# Reference genome: Mus musculus GRCm39 primary assembly.
+# Annotation: Ensembl Mus_musculus.GRCm39.115.gtf.
+# sjdbOverhang=149 was used for PE150 reads.
+
+mkdir -p reference/star_GRCm39_115_overhang149
+
+/usr/lib/rna-star/bin/STAR-avx2 \
+  --runMode genomeGenerate \
+  --runThreadN 24 \
+  --genomeDir /iss-corescratch/se524/NatImm/reference/star_GRCm39_115_overhang149 \
+  --genomeFastaFiles /iss-corescratch/se524/GSE261455/mapping/references/Mus_musculus.GRCm39.dna.primary_assembly.fa \
+  --sjdbGTFfile /iss-corescratch/se524/GSE261455/mapping/references/Mus_musculus.GRCm39.115.gtf \
+  --sjdbOverhang 149 \
+  > logs/star_index_GRCm39_115_overhang149.log 2>&1
+
+# STAR mapping of the main 39-sample 4M dataset.
+# The script loops over retained samples and runs STAR with the following parameters:
+#   --runThreadN 12
+#   --genomeDir /iss-corescratch/se524/NatImm/reference/star_GRCm39_115_overhang149
+#   --readFilesIn R1 R2
+#   --readFilesCommand zcat
+#   --outSAMtype BAM SortedByCoordinate
+#   --limitBAMsortRAM 8000000000
+# Output BAM files:
+#   alignment/star_main/<sample>/<sample>.Aligned.sortedByCoord.out.bam
+# samtools quickcheck was used to verify each BAM after STAR.
+
+nohup ./run_star_mapping_main_4M.sh \
+  > logs/star_mapping_main_4M.log 2>&1 &
+
+wait
+
+# Equivalent STAR command template used inside run_star_mapping_main_4M.sh:
+#
+# STAR \
+#   --runThreadN 12 \
+#   --genomeDir /iss-corescratch/se524/NatImm/reference/star_GRCm39_115_overhang149 \
+#   --readFilesIn subsampled_4M/main/${sample}_R1.subsampled_4M.fq.gz subsampled_4M/main/${sample}_R2.subsampled_4M.fq.gz \
+#   --readFilesCommand zcat \
+#   --outFileNamePrefix alignment/star_main/${sample}/${sample}. \
+#   --outSAMtype BAM SortedByCoordinate \
+#   --limitBAMsortRAM 8000000000
+
+# STAR mapping of the repeated 4M subsamples for S7, S19 and S43.
+# The same STAR parameters were used as for the main 39-sample dataset.
+# Output BAM files:
+#   alignment/star_large_sample_iterations/<sample_iter>/<sample_iter>.Aligned.sortedByCoord.out.bam
+
+nohup ./run_star_mapping_large_iterations.sh \
+  > logs/star_mapping_large_iterations.log 2>&1 &
+
+wait
+
+# featureCounts quantification of the main 39-sample STAR BAM files.
+# BAM integrity was checked with samtools quickcheck before counting.
+# featureCounts parameters:
+#   -T 12: 12 threads
+#   -p: paired-end mode
+#   -B: require both ends to be successfully aligned
+#   -C: exclude chimeric fragments
+#   -t exon: count exon features
+#   -g gene_id: group counts by gene_id
+#   no -s option was passed, so featureCounts used its default unstranded mode
+# Annotation:
+#   /iss-corescratch/se524/GSE261455/mapping/references/Mus_musculus.GRCm39.115.gtf
+# Output:
+#   quantification/featurecounts_main/featureCounts_main_gene_counts.txt
+#   quantification/featurecounts_main/featureCounts_main_gene_counts.txt.summary
+
+nohup ./run_featurecounts_main.sh \
+  > logs/featurecounts_main.log 2>&1 &
+
+wait
+
+# Equivalent featureCounts command used inside run_featurecounts_main.sh:
+#
+# featureCounts \
+#   -T 12 \
+#   -p \
+#   -B \
+#   -C \
+#   -t exon \
+#   -g gene_id \
+#   -a /iss-corescratch/se524/GSE261455/mapping/references/Mus_musculus.GRCm39.115.gtf \
+#   -o quantification/featurecounts_main/featureCounts_main_gene_counts.txt \
+#   $(cat quantification/featurecounts_main/main_bam_files.txt)
+
+# featureCounts quantification of the 15 repeated-subsample STAR BAM files.
+# The same featureCounts parameters were used as for the main 39-sample dataset.
+# Output:
+#   quantification/featurecounts_large_iterations/featureCounts_large_iterations_gene_counts.txt
+#   quantification/featurecounts_large_iterations/featureCounts_large_iterations_gene_counts.txt.summary
+
+nohup ./run_featurecounts_large_iterations.sh \
+  > logs/featurecounts_large_iterations.log 2>&1 &
+
+wait
+
+# Equivalent featureCounts command used inside run_featurecounts_large_iterations.sh:
+#
+# featureCounts \
+#   -T 12 \
+#   -p \
+#   -B \
+#   -C \
+#   -t exon \
+#   -g gene_id \
+#   -a /iss-corescratch/se524/GSE261455/mapping/references/Mus_musculus.GRCm39.115.gtf \
+#   -o quantification/featurecounts_large_iterations/featureCounts_large_iterations_gene_counts.txt \
+#   $(cat quantification/featurecounts_large_iterations/large_iterations_bam_files.txt)
+
+# MultiQC aggregation of STAR and featureCounts outputs.
+
+mkdir -p qc/multiqc_star_featurecounts_main
+mkdir -p qc/multiqc_star_featurecounts_large_iterations
+
+multiqc \
+  alignment/star_main \
+  quantification/featurecounts_main \
+  -o qc/multiqc_star_featurecounts_main \
+  -n MultiQC_NatImm_STAR_featureCounts_main_39samples.html \
+  > logs/multiqc_star_featurecounts_main.log 2>&1
+
+multiqc \
+  alignment/star_large_sample_iterations \
+  quantification/featurecounts_large_iterations \
+  -o qc/multiqc_star_featurecounts_large_iterations \
+  -n MultiQC_NatImm_STAR_featureCounts_large_samples_S7_S19_S43_5iterations.html \
+  > logs/multiqc_star_featurecounts_large_iterations.log 2>&1
+
+
+# Main 39-sample bulkAnalyseR app.
+# The app-building script and any final deployment script should be kept under Scripts/ in the GitHub repository.
+
+nohup Rscript bulkAnalyseR_app/create_NatImm_bulkAnalyseR_app.R \
+  > logs/create_NatImm_bulkAnalyseR_app.log 2>&1 &
+
+wait
+
+# Final 39-sample app URL:
+#   https://mohorianulab.org/shiny/NatureImm_uD7x9LmQ2r/NatImm_bulkAnalyseR/
