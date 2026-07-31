@@ -17,4 +17,3 @@ Myeloid cells play a pivotal role in persistent central nervous system (CNS) inf
 - `Human_regulons/` – analysis of SUCNR1 expression and transcription-factor regulon activity in the Absinta, Schirmer, and MacNair human single-cell or single-nucleus RNA-seq datasets, including pySCENIC input preparation and downstream visualization.
   - `Human_regulons/scenic_scripts/` – shell scripts for setting up pySCENIC, downloading human reference resources, and running the three dataset-specific pySCENIC workflows.
 - `Spatial/` – spatial transcriptomics preprocessing and neighborhood-based analysis of a SUCNR1-associated gene panel across tissue niches, including expression summaries and statistical comparisons.
-  - `Spatial/figures/` – generated mean- and sum-expression summary plots from the spatial analysis.
