@@ -10,6 +10,7 @@ Myeloid cells play a pivotal role in persistent central nervous system (CNS) inf
 
 ## Repository structure
 
+- `SC_mouse/` – methods scripts for the ex vivo mouse spinal-cord scRNA-seq analyses (clustering annotation, composition statistics, differential expression, enrichment, and targeted displays). See [`SC_mouse/README.md`](SC_mouse/README.md) for install and run order. Large Seurat / ClustAssess RDS inputs are not bundled; place them under `SC_mouse/data/` as described there.
 - `Scripts/` – R scripts included in the original submission for cluster-stability assessment with ClustAssess, BulkAnalyseR analysis, and ShinyCell visualization.
 - `CYTOF/` – mass-cytometry workflow for preprocessing and balanced downsampling, UMAP and FlowSOM clustering, cell-type annotation, marker-expression summaries, and differential metacluster-abundance testing.
   - `CYTOF/CyTOF_data/` – input FCS files for the global *Sucnr1* knockout and the acute and chronic microglia-specific *Sucnr1* knockout datasets.

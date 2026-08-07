@@ -1,0 +1,4 @@
+output/*
+!output/.gitkeep
+data/*.rds
+data/*.RDS

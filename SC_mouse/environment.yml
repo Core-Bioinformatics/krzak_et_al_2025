@@ -1,0 +1,30 @@
+# Conda environment for the Krzak et al. scRNA-seq Online Methods scripts.
+# ClustAssess is installed afterwards via install_extra.R.
+name: krzak_scrna_methods
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - r-base>=4.4
+  - r-essentials
+  - r-seurat
+  - r-ggplot2
+  - r-harmony
+  - r-sctransform
+  - r-gprofiler2
+  - r-leiden
+  - r-uwot
+  - r-remotes
+  - r-hdf5r
+  - r-data.table
+  - r-matrix
+  - r-future
+  - r-dplyr
+  - r-tidyr
+  - r-patchwork
+  - r-cowplot
+  - r-rcolorbrewer
+  - r-gridextra
+  - bioconductor-dittoseq
+  - bioconductor-delayedmatrixstats
+  - bioconductor-glmgampoi
